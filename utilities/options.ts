@@ -20,24 +20,23 @@ export const OPCION_METHOD_OPNTIONS = new Response(null, {
 const home = {
     "GET": async (req: Request) => {
         // Generar un sessionId único para cada cliente
-        const sessionId = req.headers.get('x-session-id') || Bun.randomUUIDv7();
-
         // Obtener el historial de conversación existente o crear uno nuevo
         let historyCloud = await getHistoryChat()
-        const history = []
-        // Añadir el contexto inicial si no existe
+        const sessionId = req.headers.get('x-session-id') || Bun.randomUUIDv7();
+        let historyUser = historyCloud?.[sessionId]
 
-        if (Object.values(historyCloud ?? {}).length === 0) {
+        // Añadir el contexto inicial si no existe para esta sesión
+        if (!historyUser || historyUser.length === 0) {
             const messagesInitial = await getMessagesInitial()
 
-            history.push({
+            historyUser = [{
                 role: "system",
                 content: messagesInitial
-            })
+            }]
         }
 
         // Guardar el historial actualizado
-        await setHistoryCloud(sessionId, history)
+        await setHistoryCloud(sessionId, historyUser)
         return new Response(JSON.stringify({
             sessionId,
             message: "Conversación iniciada. Puedes empezar a hacer preguntas."
@@ -58,7 +57,16 @@ const home = {
 
         // Obtener el historial de conversación existente
         const historyCloud = await getHistoryChat()
-        const historyUser = historyCloud?.[sessionId]
+        let historyUser = historyCloud?.[sessionId]
+
+        // Si no existe el historial (por ejemplo, si se borró la base de datos o fallo el inicio)
+        if (!historyUser) {
+            const messagesInitial = await getMessagesInitial();
+            historyUser = [{
+                role: "system",
+                content: messagesInitial
+            }];
+        }
 
         // Añadir el mensaje del usuario al historial
         const h = [...historyUser, {
