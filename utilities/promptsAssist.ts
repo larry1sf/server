@@ -38,6 +38,6 @@ export const setHistoryCloud = async (
     }[]
 ) => {
     const data = { [sessionId]: history }
-    db.collection(COLLECTION_NAME.asoandes).doc(DOCUMENTS_COLLECTION.conversacion).set(data)
+    db.collection(COLLECTION_NAME.asoandes).doc(DOCUMENTS_COLLECTION.conversacion).set(data, { merge: true })
     return true
 }
