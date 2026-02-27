@@ -87,7 +87,31 @@ const home = {
     }
 }
 
+const history = {
+    "GET": async (req: Request) => {
+        const sessionId = req.headers.get('x-session-id');
+        if (!sessionId) {
+            return new Response(JSON.stringify({
+                message: "Se requiere el header x-session-id"
+            }), { status: 400, headers: CORS_HEADERS });
+        }
+
+        const historyCloud = await getHistoryChat();
+        const sessionHistory = historyCloud?.[sessionId];
+
+        if (!sessionHistory || sessionHistory.length === 0) {
+            return new Response(JSON.stringify({ messages: [] }), { headers: CORS_HEADERS });
+        }
+
+        // Filtramos el mensaje de sistema para que el cliente solo reciba user/assistant
+        const messages = sessionHistory.filter((m: { role: string; content: string }) => m.role !== "system");
+
+        return new Response(JSON.stringify({ messages }), { headers: CORS_HEADERS });
+    }
+}
+
 export const OPCION_PATHNAME = {
     // home
-    "/": home
+    "/": home,
+    "/history": history
 }
