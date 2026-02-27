@@ -1,0 +1,15 @@
+# dependencies (bun install)
+node_modules
+
+# output
+dist
+
+# api rest
+.rest
+
+# dotenv environment variable files
+.env
+
+# firebase service account
+db/firebase-adminsdk.json
+
