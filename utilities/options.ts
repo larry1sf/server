@@ -19,10 +19,9 @@ export const OPCION_METHOD_OPNTIONS = new Response(null, {
 
 const home = {
     "GET": async (req: Request) => {
-        // Generar un sessionId único para cada cliente
         // Obtener el historial de conversación existente o crear uno nuevo
-        let historyCloud = await getHistoryChat()
         const sessionId = req.headers.get('x-session-id') || Bun.randomUUIDv7();
+        const historyCloud = await getHistoryChat()
         let historyUser = historyCloud?.[sessionId]
 
         // Añadir el contexto inicial si no existe para esta sesión
