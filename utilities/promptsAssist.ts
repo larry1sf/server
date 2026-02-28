@@ -1,13 +1,7 @@
 import { db } from "@/db/firebase"
 const COLLECTION_NAME = {
-    asoandes: "asoandes",
+    conversaciones: "conversaciones",
     inicio: "memoria-inicio"
-}
-
-const DOCUMENTS_COLLECTION = {
-    quienesSomos: 'quienes-somos',
-    ayuda: 'ayuda-ia',
-    conversacion: 'conversaciones'
 }
 
 export const getMessagesInitial = async () => {
@@ -20,24 +14,67 @@ export const getMessagesInitial = async () => {
     return res.join("\n")
 }
 
-export const getHistoryChat = async () => {
-    const snapshot = db.collection(COLLECTION_NAME.asoandes).doc(DOCUMENTS_COLLECTION.conversacion)
+export const getHistoryChat = async (userId: string, conversationId: string) => {
+    const snapshot = db.collection(COLLECTION_NAME.conversaciones).doc(userId)
     const doc = await snapshot.get()
 
     if (!doc.exists)
         return null
 
-    return doc.data()
+    const data = doc.data()
+    return data?.[conversationId]?.messages || null
+}
+
+export const getUserConversations = async (userId: string) => {
+    const snapshot = db.collection(COLLECTION_NAME.conversaciones).doc(userId)
+    const doc = await snapshot.get()
+
+    if (!doc.exists)
+        return []
+
+    const data = doc.data() || {}
+    return Object.entries(data).map(([id, conv]: [string, any]) => ({
+        id,
+        title: conv.title || "Sin título",
+        lastUpdate: conv.lastUpdate
+    })).sort((a, b) => b.lastUpdate - a.lastUpdate)
 }
 
 export const setHistoryCloud = async (
-    sessionId: string,
+    userId: string,
+    conversationId: string,
     history: {
         role: string;
         content: string;
-    }[]
+    }[],
+    title?: string
 ) => {
-    const data = { [sessionId]: history }
-    db.collection(COLLECTION_NAME.asoandes).doc(DOCUMENTS_COLLECTION.conversacion).set(data, { merge: true })
+    const docRef = db.collection(COLLECTION_NAME.conversaciones).doc(userId)
+
+    const updateData: any = {
+        [`${conversationId}.messages`]: history,
+        [`${conversationId}.lastUpdate`]: Date.now()
+    }
+
+    if (title) {
+        updateData[`${conversationId}.title`] = title
+    }
+
+    await docRef.update(updateData).catch(async (error) => {
+        // If document doesn't exist, use set instead
+        if (error.code === 5 || error.message.includes('NOT_FOUND')) {
+            const newData = {
+                [conversationId]: {
+                    messages: history,
+                    lastUpdate: Date.now(),
+                    title: title || "Nuevo Chat"
+                }
+            }
+            await docRef.set(newData)
+        } else {
+            throw error
+        }
+    })
+
     return true
 }

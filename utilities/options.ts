@@ -1,6 +1,6 @@
-import { serviceGroq } from "@/services/ia/groq";
+import { serviceGroq, generateTitle } from "@/services/ia/groq";
 import { CORS_HEADERS } from "@/utilities/cors";
-import { getMessagesInitial, getHistoryChat, setHistoryCloud } from '@/utilities/promptsAssist';
+import { getMessagesInitial, getHistoryChat, setHistoryCloud, getUserConversations } from '@/utilities/promptsAssist';
 
 export const OPCION_FAIL = new Response(JSON.stringify({
     message: "Fallo la peticion a la ruta",
@@ -19,106 +19,117 @@ export const OPCION_METHOD_OPNTIONS = new Response(null, {
 
 const home = {
     "GET": async (req: Request) => {
-        // Obtener el historial de conversación existente o crear uno nuevo
-        const sessionId = req.headers.get('x-session-id') || Bun.randomUUIDv7();
-        const historyCloud = await getHistoryChat()
-        let historyUser = historyCloud?.[sessionId]
+        // Obtener el userId del encabezado o crear uno nuevo
+        const userId = req.headers.get('x-session-id') || Bun.randomUUIDv7();
 
-        // Añadir el contexto inicial si no existe para esta sesión
-        if (!historyUser || historyUser.length === 0) {
-            const messagesInitial = await getMessagesInitial()
-
-            historyUser = [{
-                role: "system",
-                content: messagesInitial
-            }]
-        }
-
-        // Guardar el historial actualizado
-        await setHistoryCloud(sessionId, historyUser)
         return new Response(JSON.stringify({
-            sessionId,
-            message: "Conversación iniciada. Puedes empezar a hacer preguntas."
+            userId,
+            message: "Sesión iniciada."
         }), { headers: CORS_HEADERS })
     },
     "POST": async (req: Request) => {
-        // Obtener el sessionId del encabezado
-        const sessionId = req.headers.get('x-session-id');
-        if (!sessionId) {
+        const userId = req.headers.get('x-session-id');
+        let conversationId = req.headers.get('x-conversation-id');
+
+        if (!userId) {
             return new Response(JSON.stringify({
-                message: "Se requiere allas iniciado la conversación para continuar"
+                message: "Se requiere un ID de sesión"
             }), { status: 400, headers: CORS_HEADERS });
         }
 
-        // rescatamos el mensaje del usuario
-        const body = await req.body?.json() as { userMessage: string };
+        const body = await req.json() as { userMessage: string };
         const { userMessage } = body;
 
-        // Obtener el historial de conversación existente
-        const historyCloud = await getHistoryChat()
-        let historyUser = historyCloud?.[sessionId]
+        if (!conversationId) {
+            conversationId = Bun.randomUUIDv7();
+        }
 
-        // Si no existe el historial (por ejemplo, si se borró la base de datos o fallo el inicio)
-        if (!historyUser) {
+        // Obtener historial existente
+        let historyUser = await getHistoryChat(userId, conversationId);
+        let isFirstMessage = false;
+
+        if (!historyUser || historyUser.length === 0) {
             const messagesInitial = await getMessagesInitial();
             historyUser = [{
                 role: "system",
                 content: messagesInitial
             }];
+            isFirstMessage = true;
         }
 
-        // Añadir el mensaje del usuario al historial
+        // Añadir mensaje del usuario
         const h = [...historyUser, {
             role: "user",
             content: userMessage
         }]
 
-        //  le enviamos el historial completo a la ia
+        // Generar título si es el primer mensaje
+        let title;
+        if (isFirstMessage) {
+            title = await generateTitle(userMessage);
+        }
+
+        // Obtener respuesta de IA
         const responseIa = await serviceGroq({
             messages: h
         });
 
-        // Añadir la respuesta de la IA al historial
+        // Añadir respuesta de IA
         h.push({
             role: "assistant",
             content: responseIa
         })
 
-        // Guardar el historial actualizado
-        await setHistoryCloud(sessionId, h)
+        // Guardar historial
+        await setHistoryCloud(userId, conversationId, h, title);
 
-        // contestamos con el mensaje de la ia
         return new Response(JSON.stringify({
             message: responseIa,
+            conversationId,
+            title: title || undefined
         }), { headers: CORS_HEADERS })
     }
 }
 
 const history = {
     "GET": async (req: Request) => {
-        const sessionId = req.headers.get('x-session-id');
-        if (!sessionId) {
+        const userId = req.headers.get('x-session-id');
+        const conversationId = req.headers.get('x-conversation-id');
+
+        if (!userId || !conversationId) {
             return new Response(JSON.stringify({
-                message: "Se requiere el header x-session-id"
+                message: "Se requiere x-session-id y x-conversation-id"
             }), { status: 400, headers: CORS_HEADERS });
         }
 
-        const historyCloud = await getHistoryChat();
-        const sessionHistory = historyCloud?.[sessionId];
+        const sessionHistory = await getHistoryChat(userId, conversationId);
 
-        if (!sessionHistory || sessionHistory.length === 0) {
+        if (!sessionHistory) {
             return new Response(JSON.stringify({ messages: [] }), { headers: CORS_HEADERS });
         }
 
-        // Filtramos el mensaje de sistema para que el cliente solo reciba user/assistant
         const messages = sessionHistory.filter((m: { role: string; content: string }) => m.role !== "system");
 
         return new Response(JSON.stringify({ messages }), { headers: CORS_HEADERS });
     }
 }
 
+const conversations = {
+    "GET": async (req: Request) => {
+        const userId = req.headers.get('x-session-id');
+        if (!userId) {
+            return new Response(JSON.stringify({
+                message: "Se requiere x-session-id"
+            }), { status: 400, headers: CORS_HEADERS });
+        }
+
+        const userConvs = await getUserConversations(userId);
+        return new Response(JSON.stringify({ conversations: userConvs }), { headers: CORS_HEADERS });
+    }
+}
+
 export const OPCION_PATHNAME = {
-    // home
     "/": home,
-    "/history": history
+    "/history": history,
+    "/conversations": conversations
 }
